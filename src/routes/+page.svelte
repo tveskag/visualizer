@@ -29,8 +29,10 @@
 	  lcMat,
 	  generateSquare,
 	  aListFromRow,
+	  complementEdges,
 	} from '../types/util';
 	import type { EventHandler, MouseEventHandler } from 'svelte/elements';
+	import type { parseAst } from 'vite';
 
 	const x = 17
 	const y = 5
@@ -74,6 +76,28 @@
 	    vertices.next(verts)
 	    adjacency.next(mat)
 	  }
+	}
+
+  const blob = vertices.pipe(
+    withLatestFrom(adjacency),
+    map(([verts, mat]) => ({vertices: verts, adjacency: mat})),
+    //tap(data => console.log(data)),
+    map(data => new Blob([JSON.stringify(data)], { type: 'application/json' })),
+    map(b => URL.createObjectURL(b)) 
+  )
+
+	const load = (files: FileList | null) => {
+    const reader = new FileReader() 
+    reader.onload = (e) => {
+      const {vertices: verts, adjacency: mat}: {vertices: Vertex[], adjacency: AdjacencyMatrix} = JSON.parse(e.target?.result as string || '')
+      //console.log(verts.length)
+      //console.log(mat[0].length)
+      adjacency.next(mat)
+      vertices.next(verts)
+    }
+    if (files) {
+      reader.readAsText(files[0]);
+    }
 	}
 
 	const localComplement: Action = (mat, vertices, {n: vertex}) =>
@@ -163,49 +187,6 @@
 	  vertices.next(verts)
 	  replay.push([mat, verts])
 	}
-
-	const action = (act: Action) => {
-    vertices.pipe(
-      first(),
-      mergeMap(verts => verts.filter(v => v.selected)),
-      withLatestFrom(adjacency, vertices),
-  	  map(([vertex, mat, verts]) => {
-  	    const i = verts.findIndex(v => v.n === vertex.n)
-  	    const vert = {...vertex, n:i}
-    	  return act(mat, verts, vert)
-  	  })
-    ).subscribe(update)
-	}
-
-  const blob = vertices.pipe(
-    withLatestFrom(adjacency),
-    map(([verts, mat]) => ({vertices: verts, adjacency: mat})),
-    //tap(data => console.log(data)),
-    map(data => new Blob([JSON.stringify(data)], { type: 'application/json' })),
-    map(b => URL.createObjectURL(b)) 
-  )
-
-	const load = (files: FileList | null) => {
-    const reader = new FileReader() 
-    reader.onload = (e) => {
-      const {vertices: verts, adjacency: mat}: {vertices: Vertex[], adjacency: AdjacencyMatrix} = JSON.parse(e.target?.result as string || '')
-      //console.log(verts.length)
-      //console.log(mat[0].length)
-      adjacency.next(mat)
-      vertices.next(verts)
-    }
-    if (files) {
-      reader.readAsText(files[0]);
-    }
-	}
-
-	vertex.pipe(
-	  withLatestFrom(vertices),
-	  map(([{n, selected}, verts]) => changeVertex([], verts, {n, selected: !selected}))
-	).subscribe(([, verts]) => {
-	  vertices.next(verts)
-	})
-
 	const selectCondition = (condition: Parameters<Array<Vertex>["filter"]>[0]) => {
 	  vertices.pipe(
 	    first(),
@@ -218,6 +199,7 @@
 	const selectAll = () => selectCondition(v => !v.selected)
 	const selectHalf = () => selectCondition((_, i) => i%2)
 	const selectBasis = (basis: Bases) => selectCondition(v => propagate(v) === basis)
+
 
 	/*
 	const moveCursor: MouseEventHandler<SVGElement> = ({offsetX, offsetY, clientX, clientY, buttons, currentTarget}) =>
@@ -241,39 +223,28 @@
 	}
 
   let move = false
-  const mover: MouseEventHandler<SVGElement> = ({clientX, clientY, currentTarget}) => {
+  const mover = ({clientX, clientY, currentTarget}) => {
     if (move) {
       const {x,y} = currentTarget.getBoundingClientRect()
-      console.log(x)
       action(moveVertex({cx: clientX - x - dimensions.margins, cy: clientY - y - dimensions.margins}))
     }
   }
 
-  const selector = (vert: Vertex) => vertex.next(vert)
-  const actor = (vert: Vertex) => {
-    vertices.pipe(
-      first(),
-      withLatestFrom(adjacency),
-  	  map(([mat, verts]) => currentAction(verts, mat, vert))
-    ).subscribe(update)
-  }
-
   const setXNeighbor: Action = (mat, verts, {n}) => {
-    const neighbor = verts[n]
-    currentAction = (m, vs, v) => {
+    currentAction = (m, vs, {n:neighbor}) => {
       currentAction = measureAct
-      return measureX(() => v.n)(m, vs, neighbor)
+      return removeSelectionWrap(measureX(() => neighbor))(m, vs, {n})
     }
-    return identity(mat, verts.toSpliced(n, 1, {...neighbor, selected: true}), neighbor)
+    return identity(mat, verts, {n})
   }
 
 	const measureAct: Action = (mat, vertices, vertex) => {
 	  const basis = propagate(vertices[vertex.n])
 	  const select = {
 	    'X': setXNeighbor,
-	    'Y': measureY,
-	    'Z': measureZ,
-	    'P': identity,
+	    'Y': removeSelectionWrap(measureY),
+	    'Z': removeSelectionWrap(measureZ),
+	    'P': removeSelectionWrap(identity),
 	  }
 	  return select[basis](mat, vertices, vertex)
 	}
@@ -282,16 +253,38 @@
 
 	const complementEdge: Action = (mat, vertices, {n: vertex}) => {
 	  const m: Action = (mat, vertices, {n: neighbor}) => {
-	    var next = mat
-	    next[vertex][neighbor] = next[vertex][neighbor] ? 0 : 1
-	    next[neighbor][vertex] = next[neighbor][vertex] ? 0 : 1
   	  currentAction = complementEdge
-  	  return [next, vertices]
+  	  return [complementEdges(mat, [vertex, neighbor]), vertices]
 	  }
 	  currentAction = m
 	  return [mat, vertices]
 	}
 
+	const action = (act: Action) => {
+    vertices.pipe(
+      first(),
+      mergeMap(verts => verts.filter(v => v.selected)),
+      withLatestFrom(adjacency, vertices),
+  	  map(([vertex, mat, verts]) => {
+  	    const i = verts.findIndex(v => v.n === vertex.n)
+  	    const vert = {...vertex, n:i}
+    	  return act(mat, verts, vert)
+  	  })
+    ).subscribe(update)
+	}
+
+	const removeSelectionWrap = (action: Action): Action => (m, vs, v) => {
+	  const [mat, vertices] = action(m, vs, v)
+	  return [mat, vertices.map(v => ({...v, selected: false}))]
+	}
+
+	// Selection updater
+	vertex.pipe(
+	  withLatestFrom(vertices),
+	  map(([{n, selected}, verts]) => changeVertex([], verts, {n, selected: !selected}))
+	).subscribe(([, verts]) => {
+	  vertices.next(verts)
+	})
 
 </script>
 
@@ -306,23 +299,29 @@
   <button type="button" onclick={_ => move = !move} aria-pressed={move ? 'true' : 'false'}>
     move
   </button>
+  <button type="button" onclick={_ => actnow = !actnow}>
+    { actnow ? 'action mode' : 'selection mode' }
+  </button>
 
   <span>|</span>
-  <button type="button" onclick={_ => !actnow ? action(localComplement) : currentAction = localComplement}>LC</button>
-  <button type="button" onclick={_ => currentAction = complementEdge}>
-    connect/disconnect
-  </button>
+  <button type="button" onclick={_ => !actnow ? action(localComplement) : currentAction = removeSelectionWrap(localComplement)}>LC</button>
+
+  {#if actnow}
+    <button type="button" onclick={_ => currentAction = complementEdge}>
+      connect/disconnect
+    </button>
+  {/if}
   <!--<button type="button" onclick={_ => !actnow ? action(removeEdge) : currentAction = removeEdge}>remove edges</button>-->
   <button type="button" onclick={_ => !actnow ? action(measure) : currentAction = measureAct}>measure</button>
   <span>|</span>
 
-  <button type="button" onclick={_ => !actnow ? action(changeBasis('X')) : currentAction = changeBasis('X')}>X</button>
-  <button type="button" onclick={_ => !actnow ? action(changeBasis('Y')) : currentAction = changeBasis('Y')}>Y</button>
-  <button type="button" onclick={_ => !actnow ? action(changeBasis('Z')) : currentAction = changeBasis('Z')}>Z</button>
-  <button type="button" onclick={_ => !actnow ? action(changeBasis('P')) : currentAction = changeBasis('P')}>P</button>
+  <button type="button" onclick={_ => !actnow ? action(changeBasis('X')) : currentAction = removeSelectionWrap(changeBasis('X'))}>X</button>
+  <button type="button" onclick={_ => !actnow ? action(changeBasis('Y')) : currentAction = removeSelectionWrap(changeBasis('Y'))}>Y</button>
+  <button type="button" onclick={_ => !actnow ? action(changeBasis('Z')) : currentAction = removeSelectionWrap(changeBasis('Z'))}>Z</button>
+  <button type="button" onclick={_ => !actnow ? action(changeBasis('P')) : currentAction = removeSelectionWrap(changeBasis('P'))}>P</button>
   <span>|</span>
-  <button type="button" onclick={_ => !actnow ? action(setIO(1)) : currentAction = setIO(1)}>Set input</button>
-  <button type="button" onclick={_ => !actnow ? action(setIO(0)) : currentAction = setIO(0)}>Set output</button>
+  <button type="button" onclick={_ => !actnow ? action(setIO(true)) : currentAction = removeSelectionWrap(setIO(true))}>Set input</button>
+  <button type="button" onclick={_ => !actnow ? action(setIO(false)) : currentAction = removeSelectionWrap(setIO(false))}>Set output</button>
 
   <span>|</span>
   <button type="button" onclick={_ => undo()}>
@@ -330,9 +329,6 @@
   </button>
   <button type="button" onclick={_ => selectAll()}>
     select all
-  </button>
-  <button type="button" onclick={_ => actnow = !actnow}>
-    action
   </button>
   
   <a type="button" download="pattern.json" href={$blob}><button>save</button></a>
@@ -354,7 +350,12 @@
   {/each}
   {#each $vertices as vert, i}
     <g
-      onclick={_ => actnow ? actor({...vert, n:i}) : selector({...vert, n:i})}
+      onclick={_ => {
+        vertex.next({...vert, n:i})
+        if (actnow) {
+          action(currentAction)
+        }
+      }}
     	class={move && !vert.selected ? 'move' : 'pointer'}
   		role="none"
     >
@@ -399,9 +400,9 @@
 </svg>
 
 <style lang="scss">
-	.animate {
-		transition: all 0.3s ease-out;
-	}
+	//.animate {
+	//	transition: all 0.3s ease-out;
+	//}
 	.pointer {
 		cursor: pointer;
 	}

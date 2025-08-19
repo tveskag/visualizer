@@ -80,14 +80,16 @@ export const removeEdges = (mat: AdjacencyMatrix, vertex: number) => {
   return mat.toSpliced(vertex, 1).map(connect => connect.toSpliced(vertex, 1))
 }
 
-export const lcByproducts = (mat: AdjacencyMatrix, verts: Vertex[], vertex: number) => // TODO fix
-  verts.map((vert, i) => mat[vertex][i] ?
-    {...vert, basis: vert.basis} :
-    (i === vertex ?
-      {...vert, basis: vert.basis} :
-      vert
-    )
-  )
+export const complementEdges =
+  (mat: AdjacencyMatrix, vertices: number[]) => {
+    for (const n of vertices) {
+      for (const m of vertices) {
+        mat[n][m] = mat[n][m] ? 0 : 1
+        mat[m][n] = mat[m][n] ? 0 : 1
+      }
+    }
+    return mat;
+  }
 
 
 const unDirect = (mat: AdjacencyMatrix): AdjacencyMatrix => mat.map((row, i) => row.map((_, j) => mat[i][j] || mat[j][i]))
