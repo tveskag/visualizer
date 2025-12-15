@@ -32,9 +32,8 @@
 	  complementEdges,
 	} from '../types/util';
 	import type { EventHandler, MouseEventHandler } from 'svelte/elements';
-	import type { parseAst } from 'vite';
 
-	const x = 17
+	const x = 9
 	const y = 5
 	let dimensions: Dimensions = {
 	  width: x*80,
@@ -105,6 +104,15 @@
 	    lcMat(mat, vertex),
 	    neighborByproducts('Z')(mat, byproduct('X')(vertices, vertex), vertex),
 	  ]
+
+	const pivot: Action = (mat, vertices, vertex) => {
+	  const m: Action = (mat, vertices, neighbor) => {
+  	  currentAction = pivot
+  	  return localComplement(...localComplement(...localComplement(mat, vertices, vertex), neighbor), vertex)
+	  }
+	  currentAction = m
+	  return [mat, vertices]
+	}
 
 	const projection = (basis: Bases, byproduct: Bases): Bases => {
 	  const bases: Set<Bases> = new Set(['X','Y','Z'])
@@ -253,7 +261,7 @@
 
 	const complementEdge: Action = (mat, vertices, {n: vertex}) => {
 	  const m: Action = (mat, vertices, {n: neighbor}) => {
-  	  currentAction = complementEdge
+  	  currentAction = removeSelectionWrap(complementEdge)
   	  return [complementEdges(mat, [vertex, neighbor]), vertices]
 	  }
 	  currentAction = m
@@ -286,6 +294,14 @@
 	  vertices.next(verts)
 	})
 
+	const legend: [Vertex, String][] = [
+	  [{n:0, basis: "X", cx: 20, cy: 20, input: true, output: false, selected: false, byproducts: []}, "Input vertex"],
+	  [{n:0, basis: "X", cx: 20, cy: 20, input: false, output: true, selected: false, byproducts: []}, "Output vertex"],
+	  [{n:0, basis: "X", cx: 20, cy: 20, input: false, output: false, selected: false, byproducts: []}, "Pauli-X basis measurement"],
+	  [{n:0, basis: "Y", cx: 20, cy: 20, input: false, output: false, selected: false, byproducts: []}, "Pauli-Y basis measurement"],
+	  [{n:0, basis: "Z", cx: 20, cy: 20, input: false, output: false, selected: false, byproducts: []}, "Pauli-Z basis measurement"],
+	]
+
 </script>
 
 <div class="container">
@@ -303,25 +319,45 @@
     { actnow ? 'action mode' : 'selection mode' }
   </button>
 
-  <span>|</span>
-  <button type="button" onclick={_ => !actnow ? action(localComplement) : currentAction = removeSelectionWrap(localComplement)}>LC</button>
-
   {#if actnow}
+    <span>|</span>
+    <button type="button" onclick={_ => currentAction = removeSelectionWrap(localComplement)}>LC</button>
+    <button type="button" onclick={_ => currentAction = removeSelectionWrap(pivot)}>pivot</button>
+
     <button type="button" onclick={_ => currentAction = complementEdge}>
+      complement edges
+    </button>
+    <!--<button type="button" onclick={_ => !actnow ? action(removeEdge) : currentAction = removeEdge}>remove edges</button>-->
+    <button type="button" onclick={_ => currentAction = measureAct}>measure</button>
+    <span>|</span>
+
+    <button type="button" onclick={_ => currentAction = removeSelectionWrap(changeBasis('X'))}>X</button>
+    <button type="button" onclick={_ => currentAction = removeSelectionWrap(changeBasis('Y'))}>Y</button>
+    <button type="button" onclick={_ => currentAction = removeSelectionWrap(changeBasis('Z'))}>Z</button>
+    <button type="button" onclick={_ => currentAction = removeSelectionWrap(changeBasis('P'))}>P</button>
+    <span>|</span>
+    <button type="button" onclick={_ => currentAction = removeSelectionWrap(setIO(true))}>Set input</button>
+    <button type="button" onclick={_ => currentAction = removeSelectionWrap(setIO(false))}>Set output</button>
+  {:else}
+    <span>|</span>
+    <button type="button" onclick={_ => action(localComplement)}>LC</button>
+    <!--<button type="button" onclick={_ => !actnow ? action(pivot) : currentAction = removeSelectionWrap(pivot)}>pivot</button>
+
+    <button type="button" onclick={_ => !actnow ? action(complementEdge) : currentAction = complementEdge}>
       connect/disconnect
     </button>
-  {/if}
-  <!--<button type="button" onclick={_ => !actnow ? action(removeEdge) : currentAction = removeEdge}>remove edges</button>-->
-  <button type="button" onclick={_ => !actnow ? action(measure) : currentAction = measureAct}>measure</button>
-  <span>|</span>
+    <!--<button type="button" onclick={_ => !actnow ? action(removeEdge) : currentAction = removeEdge}>remove edges</button>-->
+    <button type="button" onclick={_ => action(measure)}>measure</button>
+    <span>|</span>
 
-  <button type="button" onclick={_ => !actnow ? action(changeBasis('X')) : currentAction = removeSelectionWrap(changeBasis('X'))}>X</button>
-  <button type="button" onclick={_ => !actnow ? action(changeBasis('Y')) : currentAction = removeSelectionWrap(changeBasis('Y'))}>Y</button>
-  <button type="button" onclick={_ => !actnow ? action(changeBasis('Z')) : currentAction = removeSelectionWrap(changeBasis('Z'))}>Z</button>
-  <button type="button" onclick={_ => !actnow ? action(changeBasis('P')) : currentAction = removeSelectionWrap(changeBasis('P'))}>P</button>
-  <span>|</span>
-  <button type="button" onclick={_ => !actnow ? action(setIO(true)) : currentAction = removeSelectionWrap(setIO(true))}>Set input</button>
-  <button type="button" onclick={_ => !actnow ? action(setIO(false)) : currentAction = removeSelectionWrap(setIO(false))}>Set output</button>
+    <button type="button" onclick={_ => action(changeBasis('X'))}>X</button>
+    <button type="button" onclick={_ => action(changeBasis('Y'))}>Y</button>
+    <button type="button" onclick={_ => action(changeBasis('Z'))}>Z</button>
+    <button type="button" onclick={_ => action(changeBasis('P'))}>P</button>
+    <span>|</span>
+    <button type="button" onclick={_ => action(setIO(true))}>Set input</button>
+    <button type="button" onclick={_ => action(setIO(false))}>Set output</button>
+  {/if}
 
   <span>|</span>
   <button type="button" onclick={_ => undo()}>
@@ -381,14 +417,14 @@
       	role="none"
       />
       {#if vert.output}
-      <circle
-      	cx={vert.cx}
-      	cy={vert.cy}
-        r={radius-3}
-      	fill="white"
-      	stroke={"transparent"}
-      	role="none"
-      />
+        <circle
+        	cx={vert.cx}
+        	cy={vert.cy}
+          r={radius-3}
+        	fill="white"
+        	stroke={"transparent"}
+        	role="none"
+        />
       {/if}
 
       <!--<Circle {cy} {cx}
@@ -398,6 +434,47 @@
     </g>
   {/each}
 </svg>
+<div class="legend-container">
+  <div class="legend-list">
+    {#each legend as [vert, text], i}
+      <div class="legend-item">
+        <svg class="Chart" width="40" height="40">
+            {#if vert.input}
+              <rect
+                x={vert.cx-(radius+3)}
+                y={vert.cy-(radius+3)}
+                width={2*radius+6}
+                height={2*radius+6}
+                stroke="black"
+                stroke-width="2"
+                fill-opacity="0"
+              />
+            {/if}
+            <circle
+            	cx={vert.cx}
+            	cy={vert.cy}
+              r={radius}
+            	fill={setColor(vert)}
+            	stroke={vert.selected ? "red" : "transparent"}
+            	stroke-width="4"
+            	role="none"
+            />
+            {#if vert.output}
+              <circle
+              	cx={vert.cx}
+              	cy={vert.cy}
+                r={radius-3}
+              	fill="white"
+              	stroke={"transparent"}
+              	role="none"
+              />
+            {/if}
+        </svg>
+        <span>{text}</span>
+      </div>
+    {/each}
+  </div>
+</div>
 
 <style lang="scss">
 	//.animate {
@@ -408,6 +485,19 @@
 	}
 	.move {
 	  cursor: move;
+	}
+	.legend-container {
+	  display: flex;
+	}
+	.legend-list {
+	  display: flex;
+	  flex-direction: column;
+	  justify-content: left;
+	}
+	.legend-item {
+	  display: flex;
+	  align-items: center;
+	  flex-direction: row;
 	}
 </style>
 

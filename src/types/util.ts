@@ -84,8 +84,10 @@ export const complementEdges =
   (mat: AdjacencyMatrix, vertices: number[]) => {
     for (const n of vertices) {
       for (const m of vertices) {
-        mat[n][m] = mat[n][m] ? 0 : 1
-        mat[m][n] = mat[m][n] ? 0 : 1
+        if (n != m && n > m) {
+          mat[n][m] = mat[n][m] ? 0 : 1
+          mat[m][n] = mat[m][n] ? 0 : 1
+        }
       }
     }
     return mat;
